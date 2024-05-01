@@ -70,6 +70,7 @@ type RocksDB struct {
 	cache        *grocksdb.Cache
 	maxOpenFiles int
 	cbs          connectBlockStats
+	readOnly     bool
 }
 
 const (
@@ -104,7 +105,7 @@ var cfBaseNames = []string{"default", "height", "addresses", "blockTxs", "transa
 var cfNamesBitcoinType = []string{"addressBalance", "txAddresses"}
 var cfNamesEthereumType = []string{"addressContracts", "internalData", "contracts", "functionSignatures", "blockInternalDataErrors", "addressAliases"}
 
-func openDB(path string, c *grocksdb.Cache, openFiles int) (*grocksdb.DB, []*grocksdb.ColumnFamilyHandle, error) {
+func openDB(path string, c *grocksdb.Cache, openFiles int, readOnly bool) (*grocksdb.DB, []*grocksdb.ColumnFamilyHandle, error) {
 	// opts with bloom filter
 	opts := createAndSetDBOptions(10, c, openFiles)
 	// opts for addresses without bloom filter
@@ -117,16 +118,24 @@ func openDB(path string, c *grocksdb.Cache, openFiles int) (*grocksdb.DB, []*gro
 	for i := 0; i < count; i++ {
 		cfOptions = append(cfOptions, opts)
 	}
-	db, cfh, err := grocksdb.OpenDbColumnFamilies(opts, path, cfNames, cfOptions)
-	if err != nil {
-		return nil, nil, err
+	if readOnly {
+		db, cfh, err := grocksdb.OpenDbForReadOnlyColumnFamilies(opts, path, cfNames, cfOptions, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		return db, cfh, nil
+	} else {
+		db, cfh, err := grocksdb.OpenDbColumnFamilies(opts, path, cfNames, cfOptions)
+		if err != nil {
+			return nil, nil, err
+		}
+		return db, cfh, nil
 	}
-	return db, cfh, nil
 }
 
 // NewRocksDB opens an internal handle to RocksDB environment.  Close
 // needs to be called to release it.
-func NewRocksDB(path string, cacheSize, maxOpenFiles int, parser bchain.BlockChainParser, metrics *common.Metrics) (d *RocksDB, err error) {
+func NewRocksDB(path string, cacheSize, maxOpenFiles int, parser bchain.BlockChainParser, metrics *common.Metrics, readOnly bool) (d *RocksDB, err error) {
 	glog.Infof("rocksdb: opening %s, required data version %v, cache size %v, max open files %v", path, dbVersion, cacheSize, maxOpenFiles)
 
 	cfNames = append([]string{}, cfBaseNames...)
@@ -140,13 +149,13 @@ func NewRocksDB(path string, cacheSize, maxOpenFiles int, parser bchain.BlockCha
 	}
 
 	c := grocksdb.NewLRUCache(uint64(cacheSize))
-	db, cfh, err := openDB(path, c, maxOpenFiles)
+	db, cfh, err := openDB(path, c, maxOpenFiles, readOnly)
 	if err != nil {
 		return nil, err
 	}
 	wo := grocksdb.NewDefaultWriteOptions()
 	ro := grocksdb.NewDefaultReadOptions()
-	return &RocksDB{path, db, wo, ro, cfh, parser, nil, metrics, c, maxOpenFiles, connectBlockStats{}}, nil
+	return &RocksDB{path, db, wo, ro, cfh, parser, nil, metrics, c, maxOpenFiles, connectBlockStats{}, readOnly}, nil
 }
 
 func (d *RocksDB) closeDB() error {
@@ -162,7 +171,7 @@ func (d *RocksDB) closeDB() error {
 func (d *RocksDB) Close() error {
 	if d.db != nil {
 		// store the internal state of the app
-		if d.is != nil && d.is.DbState == common.DbStateOpen {
+		if d.is != nil && d.is.DbState == common.DbStateOpen && !d.readOnly {
 			d.is.DbState = common.DbStateClosed
 			if err := d.StoreInternalState(d.is); err != nil {
 				glog.Info("internalState: ", err)
@@ -184,7 +193,7 @@ func (d *RocksDB) Reopen() error {
 		return err
 	}
 	d.db = nil
-	db, cfh, err := openDB(d.path, d.cache, d.maxOpenFiles)
+	db, cfh, err := openDB(d.path, d.cache, d.maxOpenFiles, d.readOnly)
 	if err != nil {
 		return err
 	}
