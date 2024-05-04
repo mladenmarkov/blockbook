@@ -22,11 +22,11 @@ import (
 	"github.com/martinboehm/btcutil/chaincfg"
 	gosocketio "github.com/martinboehm/golang-socketio"
 	"github.com/martinboehm/golang-socketio/transport"
-	"github.com/trezor/blockbook/bchain"
-	"github.com/trezor/blockbook/bchain/coins/btc"
-	"github.com/trezor/blockbook/common"
-	"github.com/trezor/blockbook/db"
-	"github.com/trezor/blockbook/tests/dbtestdata"
+	"github.com/mladenmarkov/blockbook/bchain"
+	"github.com/mladenmarkov/blockbook/bchain/coins/btc"
+	"github.com/mladenmarkov/blockbook/common"
+	"github.com/mladenmarkov/blockbook/db"
+	"github.com/mladenmarkov/blockbook/tests/dbtestdata"
 )
 
 func TestMain(m *testing.M) {
